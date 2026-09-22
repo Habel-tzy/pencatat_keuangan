@@ -2,7 +2,6 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 
-// Mengimpor "cetakan" data yang sudah kita buat sebelumnya
 import '../models/saldo_model.dart';
 import '../models/pengeluaran_model.dart';
 
@@ -46,37 +45,30 @@ class DbHelper {
     ''');
   }
 
-  // =========================================================
-  // FUNGSI CRUD UNTUK SALDO (Sesuai FR-01, FR-02, FR-07)
-  // =========================================================
-
   // 1. Membaca Saldo Saat Ini
   Future<Saldo?> getSaldo() async {
     Database dbClient = await db;
-    // Mencari data saldo dengan id = 1
     List<Map<String, dynamic>> maps = await dbClient.query('saldo', where: 'id = ?', whereArgs: [1]);
     
     if (maps.isNotEmpty) {
-      return Saldo.fromMap(maps.first); // Mengubah data SQLite menjadi objek Dart
+      return Saldo.fromMap(maps.first);
     }
-    return null; // Mengembalikan null jika saldo belum pernah diisi
+    return null;
   }
 
   // 2. Memasukkan / Mengoreksi Saldo
   Future<void> updateSaldo(double jumlahBaru) async {
     Database dbClient = await db;
     var cekSaldo = await getSaldo();
-    String waktu = DateTime.now().toString(); // Mengambil waktu saat ini
+    String waktu = DateTime.now().toString();
 
     if (cekSaldo == null) {
-      // Jika kosong, lakukan INSERT (FR-01: Input Saldo Awal)
       await dbClient.insert('saldo', {
-        'id': 1, // ID selalu 1 sesuai SRS
+        'id': 1,
         'jumlah': jumlahBaru,
         'terakhir_update': waktu
       });
     } else {
-      // Jika sudah ada, lakukan UPDATE (FR-02: Koreksi Saldo)
       await dbClient.update('saldo', {
         'jumlah': jumlahBaru,
         'terakhir_update': waktu
@@ -84,35 +76,51 @@ class DbHelper {
     }
   }
 
-  // =========================================================
-  // FUNGSI CRUD UNTUK PENGELUARAN (Sesuai FR-03, FR-04, FR-05, FR-06)
-  // =========================================================
-
   // 3. Tambah Pengeluaran & Kurangi Saldo Otomatis
   Future<void> insertPengeluaran(Pengeluaran pengeluaran) async {
     Database dbClient = await db;
-    
-    // Simpan riwayat ke tabel pengeluaran (FR-03 & FR-05)
     await dbClient.insert('pengeluaran', pengeluaran.toMap());
 
-    // Kurangi saldo otomatis (FR-04)
     var saldoSaatIni = await getSaldo();
     if (saldoSaatIni != null) {
       double sisaSaldo = saldoSaatIni.jumlah - pengeluaran.jumlah;
-      await updateSaldo(sisaSaldo); // Memanggil fungsi updateSaldo di atas
+      await updateSaldo(sisaSaldo);
     }
   }
 
   // 4. Membaca Semua Riwayat Pengeluaran
   Future<List<Pengeluaran>> getRiwayatPengeluaran() async {
     Database dbClient = await db;
-    
-    // Mengambil semua data, diurutkan berdasarkan ID terbesar (terbaru)
     List<Map<String, dynamic>> maps = await dbClient.query('pengeluaran', orderBy: 'id DESC');
     
-    // Mengubah daftar Map SQLite menjadi daftar Objek Pengeluaran Dart
     return List.generate(maps.length, (i) {
       return Pengeluaran.fromMap(maps[i]);
     });
+  }
+
+  // 5. Menghapus Pengeluaran & Mengembalikan Saldo
+  Future<void> hapusPengeluaran(int idPengeluaran, double nominalYangDikembalikan) async {
+    Database dbClient = await db;
+    
+    // 1. Hapus data dari tabel pengeluaran berdasarkan ID
+    await dbClient.delete(
+      'pengeluaran',
+      where: 'id = ?',
+      whereArgs: [idPengeluaran],
+    );
+
+    // 2. Kembalikan uang ke saldo utama
+    var saldoSaatIni = await getSaldo();
+    if (saldoSaatIni != null) {
+      double saldoBaru = saldoSaatIni.jumlah + nominalYangDikembalikan;
+      await updateSaldo(saldoBaru); // Update ke database
+    }
+  }
+
+  // 6. Menambah Saldo Utama (Top Up / Pemasukan)
+  Future<void> tambahSaldo(double nominal) async {
+    var saldoSaatIni = await getSaldo();
+    double saldoBaru = (saldoSaatIni?.jumlah ?? 0.0) + nominal;
+    await updateSaldo(saldoBaru);
   }
 }
